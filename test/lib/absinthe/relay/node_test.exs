@@ -1,6 +1,5 @@
 defmodule Absinthe.Relay.NodeTest do
   use Absinthe.Relay.Case, async: true
-  import ExUnit.CaptureLog
 
   alias Absinthe.Relay.Node
 
@@ -86,27 +85,6 @@ defmodule Absinthe.Relay.NodeTest do
   @foo1_id Base.encode64("Foo:1")
   @foo2_id Base.encode64("Foo:2")
 
-  describe "global_id_resolver" do
-
-    it "returns a function that returns an error when a global id can't be resolved" do
-      fun = fn ->
-        resolver = Absinthe.Relay.Node.global_id_resolver(:other_foo, nil)
-        resolver.(%{}, %{schema: Schema, source: %{}})
-      end
-
-      base = "No source non-global ID value could be fetched from the source object"
-      # User error
-      capture_log(fn -> assert {:error, base} == fun.() end)
-      # Developer: warn level
-      assert capture_log(fun) =~ base <> " (type FancyFoo)"
-      # Developer: debug level
-      debug = capture_log(fun)
-      assert debug =~ base
-      assert debug =~ "%{"
-    end
-
-  end
-
   describe "to_global_id" do
 
     it "works given an atom for an existing type" do
@@ -149,7 +127,7 @@ defmodule Absinthe.Relay.NodeTest do
         ~s<{ singleFoo(id: "#{Node.to_global_id(:other_foo, 1, Schema)}") { id name } }>
         |> Absinthe.run(Schema)
       assert {:ok, %{data: %{}, errors: [
-        %{message: ~s<In field "singleFoo": In argument "id": Expected node type in ["Foo"], found "FancyFoo".>}
+        %{message: ~s<In field "singleFoo": In argument "id": Expected node type :foo, found :other_foo.>}
       ]}} = result
     end
 
@@ -158,7 +136,7 @@ defmodule Absinthe.Relay.NodeTest do
         ~s<{ singleFooWithMultipleNodeTypes(id: "#{Node.to_global_id(:other_foo, 1, Schema)}") { id name } }>
         |> Absinthe.run(Schema)
       assert {:ok, %{data: %{}, errors: [
-        %{message: ~s<In field "singleFooWithMultipleNodeTypes": In argument "id": Expected node type in ["Foo"], found "FancyFoo".>}
+        %{message: ~s<In field "singleFooWithMultipleNodeTypes": In argument "id": Expected node type in [:foo, :bar], found :other_foo.>}
       ]}} = result
     end
 
@@ -184,8 +162,8 @@ defmodule Absinthe.Relay.NodeTest do
         ~s<{ dualFoo(id1: "#{Node.to_global_id(:other_foo, 1, Schema)}", id2: "#{Node.to_global_id(:other_foo, 2, Schema)}") { id name } }>
         |> Absinthe.run(Schema)
       assert {:ok, %{data: %{}, errors: [
-        %{message: ~s(In field "dualFoo": In argument "id1": Expected node type in ["Foo"], found "FancyFoo".)},
-        %{message: ~s(In field "dualFoo": In argument "id2": Expected node type in ["Foo"], found "FancyFoo".)}
+        %{message: ~s(In field "dualFoo": In argument "id1": Expected node type :foo, found :other_foo.)},
+        %{message: ~s(In field "dualFoo": In argument "id2": Expected node type :foo, found :other_foo.)}
       ]}} = result
     end
 
@@ -194,8 +172,8 @@ defmodule Absinthe.Relay.NodeTest do
         ~s<{ dualFooWithMultipleNodeTypes(id1: "#{Node.to_global_id(:other_foo, 1, Schema)}", id2: "#{Node.to_global_id(:other_foo, 2, Schema)}") { id name } }>
         |> Absinthe.run(Schema)
       assert {:ok, %{data: %{}, errors: [
-        %{message: ~s(In field "dualFooWithMultipleNodeTypes": In argument "id1": Expected node type in ["Foo"], found "FancyFoo".)},
-        %{message: ~s(In field "dualFooWithMultipleNodeTypes": In argument "id2": Expected node type in ["Foo"], found "FancyFoo".)}
+        %{message: ~s(In field "dualFooWithMultipleNodeTypes": In argument "id1": Expected node type in [:foo, :bar], found :other_foo.)},
+        %{message: ~s(In field "dualFooWithMultipleNodeTypes": In argument "id2": Expected node type in [:foo, :bar], found :other_foo.)}
       ]}} = result
     end
 

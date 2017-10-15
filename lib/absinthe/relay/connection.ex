@@ -45,10 +45,11 @@ defmodule Absinthe.Relay.Connection do
     connection field :pets, node_type: :pet do
       resolve fn
         pagination_args, %{source: person} ->
-          Absinthe.Relay.Connection.from_list(
+          connection = Absinthe.Relay.Connection.from_list(
             Enum.map(person.pet_ids, &pet_from_id(&1)),
             pagination_args
           )
+          {:ok, connection}
         end
       end
     end
@@ -60,19 +61,6 @@ defmodule Absinthe.Relay.Connection do
   `first`, and `last`. We create the connection by using
   `Absinthe.Relay.Connection.from_list/2`, which takes a list and the pagination
   arguments passed to the resolver.
-
-  It is possible to provide additional pagination arguments to a relay connection:
-
-  ```
-  connection field :pets, node_type: :pet do
-    arg :custom_arg, :custom
-    # other args...
-    resolve fn
-     pagination_args_and_custom_args, %{source: person} ->
-        # ... return {:ok, a_connection}
-    end
-  end
-  ```
 
   Note: `Absinthe.Relay.Connection.from_list/2`, like `connectionFromArray` in
   the JS implementation, expects that the full list of records be materialized
@@ -281,7 +269,7 @@ defmodule Absinthe.Relay.Connection do
   alias Absinthe.Relay
 
   def list(args, %{context: %{current_user: user}}) do
-    {:ok, :forward, limit} = Connection.limit(args)
+    {:forward, limit} = Connection.limit(args)
     offset = Connection.offset(args)
 
     Post
@@ -296,13 +284,14 @@ defmodule Absinthe.Relay.Connection do
   @spec from_slice(data :: list, offset :: offset) :: {:ok, t}
   @spec from_slice(data :: list, offset :: offset, opts :: from_slice_opts) :: {:ok, t}
   def from_slice(items, offset, opts \\ []) do
+    opts = Map.new(opts)
     {edges, first, last} = build_cursors(items, offset)
 
     page_info = %{
       start_cursor: first,
       end_cursor: last,
-      has_previous_page: Keyword.get(opts, :has_previous_page, false),
-      has_next_page: Keyword.get(opts, :has_next_page, false),
+      has_previous_page: Map.get(opts, :has_previous_page, false),
+      has_next_page: Map.get(opts, :has_next_page, false),
     }
     {:ok, %{edges: edges, page_info: page_info}}
   end
@@ -337,23 +326,23 @@ defmodule Absinthe.Relay.Connection do
   ] | from_slice_opts
 
   if Code.ensure_loaded?(Ecto) do
-    @spec from_query(Ecto.Queryable.t, (Ecto.Queryable.t -> [term]), Options.t) :: {:ok, map} | {:error, any}
-    @spec from_query(Ecto.Queryable.t, (Ecto.Queryable.t -> [term]), Options.t, from_query_opts) :: {:ok, map} | {:error, any}
+    @spec from_query(Ecto.Query.t, (Ecto.Query.t -> [term]), Options.t) :: {:ok, map} | {:error, any}
+    @spec from_query(Ecto.Query.t, (Ecto.Query.t -> [term]), Options.t, from_query_opts) :: {:ok, map} | {:error, any}
     def from_query(query, repo_fun, args, opts \\ []) do
       require Ecto.Query
       with {:ok, offset, limit} <- offset_and_limit_for_query(args, opts) do
         records =
           query
-          |> Ecto.Query.limit(^(limit + 1))
+          |> Ecto.Query.limit(^limit)
           |> Ecto.Query.offset(^offset)
           |> repo_fun.()
 
         opts = [
-          has_next_page: args[:first] != nil && length(records) > limit,
+          has_next_page: args[:first] != nil && !(length(records) < limit),
           has_previous_page: args[:last] != nil && offset > 0,
         ] ++ opts
 
-        from_slice(Enum.take(records, limit), offset, opts)
+        from_slice(records, offset, opts)
       end
     end
   else
@@ -374,7 +363,7 @@ defmodule Absinthe.Relay.Connection do
 
       {:ok, :backward, limit} ->
         case {offset(args), opts[:count]} do
-          {nil, nil} -> {:error, "You must supply a count (total number of records) option if using `last` without `before`"}
+          {nil, nil} -> {:error, "You must supply a count if using `last` without `before`"}
           {nil, value} -> {:ok, max(value - limit, 0), limit}
           {value, _} -> {:ok, max(value - limit, 0), limit}
         end
@@ -428,7 +417,6 @@ defmodule Absinthe.Relay.Connection do
 
   defp build_cursors([], _offset), do: {[], nil, nil}
   defp build_cursors([item | items], offset) do
-    offset = offset || 0
     first = offset_to_cursor(offset)
     first_edge = %{
       node: item,
